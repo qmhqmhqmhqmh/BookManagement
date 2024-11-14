@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>管理系统</title>
+    <!-- 引入Element UI的CSS和JS文件 -->
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <style>
+        .pagination-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .el-header, .el-footer {
+            background-color: #B3C0D1;
+            color: #333;
+            text-align: center;
+            line-height: 60px;
+        }
+
+        .el-aside {
+            background-color: #D3DCE6;
+            color: #333;
+            text-align: center;
+            line-height: 200px;
+        }
+
+        .el-main {
+            background-color: #E9EEF3;
+            color: #333;
+            text-align: center;
+            line-height: 60px;
+        }
+
+        body > .el-container {
+            margin-bottom: 40px;
+        }
+        .logout-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <el-container>
+            <el-aside width="200px">
+                <el-menu default-active="1" class="el-menu-vertical-demo" @select="handleSelect">
+                    <el-menu-item index="1">用户管理</el-menu-item>
+                    <el-menu-item index="2">图书管理</el-menu-item>
+                    <el-menu-item index="3" @click="loadBorrowRecords">借阅记录</el-menu-item>
+                </el-menu>
+            </el-aside>
+            <el-container>
+                <el-header>
+                    {{ currentHeader }}
+                </el-header>
+                <el-main>
+                    <div v-if="currentView === 'userManagement'">
+                        <!-- 用户管理内容 -->
+                        <el-input v-model="userSearchQuery" placeholder="请输入用户名" class="search-input" style="width: 300px; margin-right: 10px;"></el-input>
+                        <el-button type="primary" @click="searchUsers">搜索</el-button>
+                        <el-button type="primary" @click="openAddUserDialog">添加用户</el-button>
+                        <el-button type="primary" @click="loadUsers">显示所有用户</el-button>
+                        <el-button type="primary" @click="exportUsers">导出</el-button>
+                        <el-table :data="paginatedUsers" border style="width: 100%" :header-cell-style="headerStyle" :cell-style="cellStyle">
+                            <el-table-column prop="displayId" label="编号" width="80"></el-table-column>
+                            <el-table-column prop="username" label="用户名"></el-table-column>
+                            <el-table-column prop="password" label="密码">
+                                <template slot-scope="scope">
+                                    <div style="display: flex; align-items: center;">
+                                        <span>{{ visiblePasswords[scope.$index] ? scope.row.password : '******' }}</span>
+                                        <i :class="visiblePasswords[scope.$index] ? 'el-icon-view-off' : 'el-icon-view'" @click="togglePasswordVisibility(scope.$index)" class="password-toggle"></i>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="email" label="邮箱"></el-table-column>
+                            <el-table-column prop="tel" label="联系方式"></el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template slot-scope="scope">
+                                    <el-button size="mini" type="primary" @click="openEditUserDialog(scope.row)">编辑</el-button>
+                                    <el-button size="mini" type="danger" @click="confirmDeleteUser(scope.row.id)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+
+                        <!-- 用户分页组件 -->
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="users.length"
+                                :page-size="userPageSize"
+                                :current-page.sync="userCurrentPage"
+                                @current-change="handleUserPageChange">
+                            </el-pagination>
+                        </div>
+
+                        <!-- 编辑用户信息的弹出框 -->
+                        <el-dialog title="编辑用户" :visible.sync="editUserDialogVisible" width="30%">
+                            <el-form :model="editUserForm" ref="editUserForm" label-width="80px">
+                                <el-form-item label="用户名" prop="username" :rules="[{ required: true, message: '请输入用户名', trigger: 'blur' }]">
+                                    <el-input v-model="editUserForm.username"></el-input>
+                                </el-form-item>
+                                <el-form-item label="密码" prop="password" :rules="[{ required: true, message: '请输入密码', trigger: 'blur' }]">
+                                    <el-input type="password" v-model="editUserForm.password"></el-input>
+                                </el-form-item>
+                                <el-form-item label="邮箱" prop="email" :rules="[{ required: true, message: '请输入邮箱', trigger: 'blur' }, { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }]">
+                                    <el-input v-model="editUserForm.email"></el-input>
+                                </el-form-item>
+                                <el-form-item label="联系方式" prop="tel" :rules="[{ required: true, message: '请输入联系方式', trigger: 'blur' }]">
+                                    <el-input v-model="editUserForm.tel"></el-input>
+                                </el-form-item>
+                            </el-form>
+                            <span slot="footer" class="dialog-footer">
+                                <el-button @click="editUserDialogVisible = false">取消</el-button>
+                                <el-button type="primary" @click="submitEditUserForm('editUserForm')">保存</el-button>
+                            </span>
+                        </el-dialog>
+
+                        <!-- 添加用户信息的弹出框 -->
+                        <el-dialog title="添加用户" :visible.sync="addUserDialogVisible" width="30%">
+                            <el-form :model="addUserForm" ref="addUserForm" label-width="80px">
+                                <el-form-item label="用户名" prop="username" :rules="[{ required: true, message: '请输入用户名', trigger: 'blur' }]">
+                                    <el-input v-model="addUserForm.username"></el-input>
+                                </el-form-item>
+                                <el-form-item label="密码" prop="password" :rules="[{ required: true, message: '请输入密码', trigger: 'blur' }]">
+                                    <el-input type="password" v-model="addUserForm.password"></el-input>
+                                </el-form-item>
+                                <el-form-item label="邮箱" prop="email" :rules="[{ required: true, message: '请输入邮箱', trigger: 'blur' }, { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }]">
+                                    <el-input v-model="addUserForm.email"></el-input>
+                                </el-form-item>
+                                <el-form-item label="联系方式" prop="tel" :rules="[{ required: true, message: '请输入联系方式', trigger: 'blur' }]">
+                                    <el-input v-model="addUserForm.tel"></el-input>
+                                </el-form-item>
+                            </el-form>
+                            <span slot="footer" class="dialog-footer">
+                                <el-button @click="addUserDialogVisible = false">取消</el-button>
+                                <el-button type="primary" @click="submitAddUserForm('addUserForm')">保存</el-button>
+                            </span>
+                        </el-dialog>
+                    </div>
+
+                    <div v-if="currentView === 'bookManagement'">
+                        <!-- 图书管理内容 -->
+                        <el-input v-model="bookSearchQuery" placeholder="请输入书名" class="search-input" style="width: 300px; margin-right: 10px;"></el-input>
+                        <el-button type="primary" @click="searchBooks">搜索</el-button>
+                        <el-button type="primary" @click="openAddBookDialog">添加图书</el-button>
+                        <el-button type="primary" @click="loadBooks">显示所有图书</el-button>
+                        <el-button type="primary" @click="exportBooks">导出</el-button>
+                        <el-table :data="paginatedBooks" border style="width: 100%" :header-cell-style="headerStyle" :cell-style="cellStyle">
+                            <el-table-column prop="displayId" label="编号" width="80"></el-table-column>
+                            <el-table-column prop="title" label="书名"></el-table-column>
+                            <el-table-column prop="author" label="作者"></el-table-column>
+                            <el-table-column prop="publisher" label="出版社"></el-table-column>
+                            <el-table-column prop="type" label="类型">
+                                <template slot-scope="scope">
+                                    <span>{{ scope.row.type }}</span>
+                                    <el-icon><i class="el-icon-arrow-down" style="cursor: pointer;" @click="openTypeFilter"></i></el-icon>
+                                </template>                
+                            </el-table-column>
+                            <el-table-column prop="status" label="状态">
+                                <template slot-scope="scope">
+                                    <span>{{ scope.row.status }}</span>
+                                    <el-icon><i class="el-icon-arrow-down" style="cursor: pointer;" @click="openStatusFilter"></i></el-icon>
+                                </template>                
+                            </el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template slot-scope="scope">
+                                    <el-button size="mini" type="primary" @click="openEditBookDialog(scope.row)">编辑</el-button>
+                                    <el-button size="mini" type="danger" @click="confirmDeleteBook(scope.row.id)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+
+                        <!-- 图书分页组件 -->
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="books.length"
+                                :page-size="bookPageSize"
+                                :current-page.sync="bookCurrentPage"
+                                @current-change="handleBookPageChange">
+                            </el-pagination>
+                        </div>
+
+                        <!-- 编辑图书信息的弹出框 -->
+                        <el-dialog title="编辑图书" :visible.sync="editBookDialogVisible" width="30%">
+                            <el-form :model="editBookForm" label-width="80px">
+                                <el-form-item label="书名">
+                                    <el-input v-model="editBookForm.title"></el-input>
+                                </el-form-item>
+                                <el-form-item label="作者">
+                                    <el-input v-model="editBookForm.author"></el-input>
+                                </el-form-item>
+                                <el-form-item label="出版社">
+                                    <el-input v-model="editBookForm.publisher"></el-input>
+                                </el-form-item>
+                                <el-form-item label="类型">
+                                    <el-select v-model="editBookForm.type" placeholder="请选择类型">
+                                        <el-option label="软件开发" value="软件开发"></el-option>
+                                        <el-option label="文学" value="文学"></el-option>
+                                        <el-option label="科幻" value="科幻"></el-option>
+                                        <el-option label="历史" value="历史"></el-option>
+                                        <el-option label="科普" value="科普"></el-option>
+                                        <el-option label="心理" value="心理"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="状态">
+                                    <el-input v-model="editBookForm.status"></el-input>
+                                </el-form-item>
+                            </el-form>
+                            <span slot="footer" class="dialog-footer">
+                                <el-button @click="editBookDialogVisible = false">取消</el-button>
+                                <el-button type="primary" @click="updateBook">保存</el-button>
+                            </span>
+                        </el-dialog>
+
+                        <!-- 添加图书信息的弹出框 -->
+                        <el-dialog title="添加图书" :visible.sync="addBookDialogVisible" width="30%">
+                            <el-form :model="addBookForm" ref="addBookForm" label-width="80px">
+                                <el-form-item label="书名" prop="title" :rules="[{ required: true, message: '请输入书名', trigger: 'blur' }]">
+                                    <el-input v-model="addBookForm.title"></el-input>
+                                </el-form-item>
+                                <el-form-item label="作者" prop="author" :rules="[{ required: true, message: '请输入作者', trigger: 'blur' }]">
+                                    <el-input v-model="addBookForm.author"></el-input>
+                                </el-form-item>
+                                <el-form-item label="出版社" prop="publisher" :rules="[{ required: true, message: '请输入出版社', trigger: 'blur' }]">
+                                    <el-input v-model="addBookForm.publisher"></el-input>
+                                </el-form-item>
+                                <el-form-item label="类型" prop="type" :rules="[{ required: true, message: '请选择类型', trigger: 'change' }]">
+                                    <el-select v-model="addBookForm.type" placeholder="请选择类型">
+                                        <el-option label="小说" value="小说"></el-option>
+                                        <el-option label="文学" value="文学"></el-option>
+                                        <el-option label="科幻" value="科幻"></el-option>
+                                        <el-option label="历史" value="历史"></el-option>
+                                        <el-option label="科普" value="科普"></el-option>
+                                        <el-option label="心理" value="心理"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="状态" prop="status" :rules="[{ required: true, message: '请输入状态', trigger: 'blur' }]">
+                                    <el-input v-model="addBookForm.status"></el-input>
+                                </el-form-item>
+                            </el-form>
+                            <span slot="footer" class="dialog-footer">
+                                <el-button @click="addBookDialogVisible = false">取消</el-button>
+                                <el-button type="primary" @click="submitAddBookForm('addBookForm')">保存</el-button>
+                            </span>
+                        </el-dialog>
+                    </div>
+
+                    <div v-if="currentView === 'borrowRecords'">
+                        <!-- 借阅管理内容 -->
+                        <h2>借阅管理</h2>
+                        <el-table :data="paginatedBorrowRecords" class="book-table" style="width: 100%">
+							<el-table-column prop="displayId" label="编号"></el-table-column>
+                            <el-table-column prop="user_name" label="用户名"></el-table-column>
+                            <el-table-column prop="book_name" label="书名"></el-table-column>
+                            <el-table-column prop="borrow_date" label="借阅日期"></el-table-column>
+                            <el-table-column prop="return_date" label="归还日期"></el-table-column>
+                            <el-table-column prop="status" label="状态"></el-table-column>
+                            <el-table-column label="操作">
+                                <template slot-scope="scope">
+                                    <el-button type="primary" @click="returnBook(scope.row)">归还</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="borrowRecords.length"
+                                :page-size="borrowPageSize"
+                                :current-page.sync="borrowCurrentPage"
+                                @current-change="handleBorrowPageChange">
+                            </el-pagination>
+                        </div>
+                    </div>
+                </el-main>
+            </el-container>
+        </el-container>
+        <el-button type="danger" class="logout-button" @click="confirmLogout">退出</el-button>
+    </div>
+
+    <script>
+        // 创建 Axios 实例
+        Vue.use(ELEMENT);
+        const axiosInstance = axios.create({
+            baseURL: 'http://localhost:8090', // API 基础 URL
+            timeout: 5000 // 请求超时时间
+        });
+        // 请求拦截器
+        axiosInstance.interceptors.request.use(
+            config => {
+                const admin = sessionStorage.getItem('admin');
+                if (admin) {
+                    // 将 token 添加到请求头中
+                    config.headers.Authorization = `Bearer ${JSON.parse(admin).token}`;
+                }
+                return config;
+            },
+            error => {
+                return Promise.reject(error);
+            }
+        );
+        // 响应拦截器
+        axiosInstance.interceptors.response.use(
+            response => {
+                return response;
+            },
+            error => {
+                if (error.response) {
+                    if (error.response.status === 401) {
+                        // 未授权，重定向到登录页面
+                        ELEMENT.Message.error('未登录或登录已过期，请重新登录');
+                        sessionStorage.removeItem('admin');
+                        setTimeout(() => {
+                            window.location.href = 'adminTry.html';
+                        }, 2000);
+                    } else {
+                        ELEMENT.Message.error(error.response.data.message || '请求错误');
+                    }
+                }
+                return Promise.reject(error);
+            }
+        );
+        new Vue({
+            el: '#app',
+            created() {
+                // 检查是否登录
+                const admin = sessionStorage.getItem('admin');
+                if (!admin) {
+                    ELEMENT.Message.error('未登录图书管理系统，请重新登录');
+                    setTimeout(() => {
+                        window.location.href = 'adminTry.html';
+                    }, 2000);
+                }
+                this.loadUsers();
+                this.loadBooks();
+                this.loadBorrowRecords();
+            },
+            data: {
+                currentView: 'userManagement', // 当前显示的视图
+                currentHeader: '用户管理', // 当前显示的标题
+                // 用户管理数据
+                users: [],
+                userSearchQuery: '',
+                userCurrentPage: 1,
+                userPageSize: 10, // 每页显示的用户数量
+                editUserDialogVisible: false,
+                addUserDialogVisible: false,
+                editUserForm: {
+                    id: '',
+                    username: '',
+                    password: '',
+                    email: '',
+                    tel: ''
+                },
+                addUserForm: {
+                    username: '',
+                    password: '',
+                    email: '',
+                    tel: ''
+                },
+                visiblePasswords: [], // 用于存储每个密码的可见性状态
+                // 图书管理数据
+                allBooks: [], // 添加 allBooks 属性
+                selectedType: '', // 当前选择的图书类型
+                selectedStatus: '',//当前选择的图书状态
+                books: [],
+                bookSearchQuery: '',
+                bookCurrentPage: 1,
+                bookPageSize: 10, // 每页显示的图书数量
+                editBookDialogVisible: false,
+                addBookDialogVisible: false,
+                editBookForm: {
+                    id: '',
+                    title: '',
+                    author: '',
+                    publisher: '',
+                    type: '',
+                    status: ''
+                },
+                addBookForm: {
+                    title: '',
+                    author: '',
+                    publisher: '',
+                    type: '',
+                    status: ''
+                },
+                borrowRecords: [],
+                borrowCurrentPage: 1,
+                borrowPageSize: 10
+            },
+            computed: {
+                paginatedUsers() {
+                    const start = (this.userCurrentPage - 1) * this.userPageSize;
+                    const end = start + this.userPageSize;
+                    return this.users.slice(start, end);
+                },
+                paginatedBooks() {
+                    const start = (this.bookCurrentPage - 1) * this.bookPageSize;
+                    const end = start + this.bookPageSize;
+                    return this.books.slice(start, end);
+                },
+                paginatedBorrowRecords() {
+                    const start = (this.borrowCurrentPage - 1) * this.borrowPageSize;
+                    const end = start + this.borrowPageSize;
+                    return this.borrowRecords.slice(start, end);
+                }
+            },
+            methods: {
+                headerStyle() {
+                    return { textAlign: 'center' };
+                },
+                cellStyle() {
+                    return { textAlign: 'center' };
+                },
+                //导航栏选择之后进行菜单跳转
+                handleSelect(key, keyPath) {
+                    if (key === '1') {
+                        this.currentView = 'userManagement';
+                        this.currentHeader = '用户管理';
+                    } else if (key === '2') {
+                        this.currentView = 'bookManagement';
+                        this.currentHeader = '图书管理';
+                    } else if (key === '3') {
+                        this.currentView = 'borrowRecords';
+                        this.currentHeader = '借阅记录';
+						this.loadBorrowRecords();
+                    }
+                },
+                // 用户管理方法
+                //加载用户
+                loadUsers() {
+                    axios.get('http://localhost:8090/user/findAllUsers').then(res => {
+                        if (res.data.isOk) {
+                            this.users = res.data.users.map((user, index) => ({
+                                ...user,
+                                displayId: index + 1 // 重新编号
+                            }));
+                            this.visiblePasswords = new Array(this.users.length).fill(false); // 初始化密码可见性状态
+                            this.userSearchQuery = ''; // 清空搜索框
+                        } else {
+                            this.$message.error('加载用户失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error loading users:', error);
+                        this.$message.error('加载用户失败');
+                    });
+                },
+                searchUsers() {
+                    axios.get('http://localhost:8090/user/searchUsers', {
+                        params: { query: this.userSearchQuery }
+                    }).then(res => {
+                        if (res.data.ok && res.data.data && res.data.data.length > 0) {
+                            this.users = res.data.data.map((user, index) => ({
+                                ...user,
+                                displayId: index + 1 // 重新编号
+                            }));
+                            this.visiblePasswords = new Array(this.users.length).fill(false); // 初始化密码可见性状态
+                            this.$message.success('搜索成功');
+                        } else {
+                            this.$message.error('相关用户不存在');
+                        }
+                    }).catch(error => {
+                        console.error('Error searching users:', error);
+                        this.$message.error('搜索用户失败');
+                    });
+                },
+                handleUserPageChange(page) {
+                    this.userCurrentPage = page;
+                },
+                togglePasswordVisibility(index) {
+                    const actualIndex = (this.userCurrentPage - 1) * this.userPageSize + index;
+                    this.$set(this.visiblePasswords, actualIndex, !this.visiblePasswords[actualIndex]);
+                },
+                confirmDeleteUser(id) {
+                    this.$confirm('确定要删除该用户吗?', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.deleteUser(id);
+                    }).catch(() => {
+                        this.$message.info('已取消删除');
+                    });
+                },
+                deleteUser(id) {
+                    axios.delete('http://localhost:8090/user/deleteUser', {
+                        params: { id }
+                    }).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('删除成功');
+                            this.loadUsers(); //删除之后重新加载一下用户列表
+                        } else {
+                            this.$message.error('删除失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error deleting user:', error);
+                        this.$message.error('删除失败');
+                    });
+                },
+                openEditUserDialog(user) {
+                    this.editUserForm = { ...user }; // Clone the user object to editForm
+                    this.editUserDialogVisible = true;
+                },
+                submitEditUserForm(formName) {
+                    this.$refs[formName].validate((valid) => {
+                        if (valid) {
+                            axios.put('http://localhost:8090/user/updateUser', this.editUserForm).then(res => {
+                                if (res.data.isOk) {
+                                    this.$message.success('更新成功');
+                                    this.loadUsers(); //更新成功之后重新加载
+                                    this.editUserDialogVisible = false;
+                                } else {
+                                    this.$message.error('更新失败');
+                                }
+                            }).catch(error => {
+                                console.error('Error updating user:', error);
+                                this.$message.error('更新失败');
+                            });
+                        } else {
+                            console.log('error submit!');
+                            return false;
+                        }
+                    });
+                },
+                openAddUserDialog() {
+                    this.addUserForm = {
+                        username: '',
+                        password: '',
+                        email: '',
+                        tel: ''
+                    }; // 清空表单
+                    this.addUserDialogVisible = true;
+                },
+                submitAddUserForm(formName) {
+                    this.$refs[formName].validate((valid) => {
+                        if (valid) {
+                            axios.post('http://localhost:8090/user/addUser', this.addUserForm).then(res => {
+                                if (res.data.isOk) {
+                                    this.$message.success('用户添加成功');
+                                    this.loadUsers(); // Reload users after addition
+                                    this.addUserDialogVisible = false;
+                                } else {
+                                    this.$message.error('用户添加失败');
+                                }
+                            }).catch(error => {
+                                console.error('Error adding user:', error);
+                                this.$message.error('用户添加失败，请稍后重试');
+                            });
+                        } else {
+                            console.log('error submit!');
+                            return false;
+                        }
+                    });
+                },
+                openTypeFilter() {
+                    // 你的筛选逻辑
+                    this.filterBooks();
+                },
+                openStatusFilter() {
+                    // 你的筛选逻辑
+                    this.filterBooks();
+                },  
+                filterBooks() {
+                    this.loadBooks();
+                },  
+                // 图书管理方法
+                loadBooks() {
+                    axios.get('http://localhost:8090/book/findAllBooks').then(res => {
+                        if (res.data.isOk) {
+                            this.books = res.data.books.map((book, index) => ({
+                                ...book,
+                                displayId: index + 1 // 重新编号
+                            }));
+                            this.bookSearchQuery = ''; // 清空搜索框
+                        } else {
+                            this.$message.error('加载图书失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error loading books:', error);
+                        this.$message.error('加载图书失败');
+                    });
+                },
+                searchBooks() {
+                    axios.get('http://localhost:8090/book/searchBooks', {
+                        params: { query: this.bookSearchQuery }
+                    }).then(res => {
+                        if (res.data.ok && res.data.data && res.data.data.length > 0) {
+                            this.books = res.data.data.map((book, index) => ({
+                                ...book,
+                                displayId: index + 1 // 重新编号
+                            }));
+                            this.$message.success('搜索成功');
+                        } else {
+                            this.$message.error('没有找到相关图书');
+                        }
+                    }).catch(error => {
+                        console.error('Error searching books:', error);
+                        this.$message.error('搜索图书失败');
+                    });
+                },
+                handleBookPageChange(page) {
+                    this.bookCurrentPage = page;
+                },
+                confirmDeleteBook(id) {
+                    this.$confirm('确定要删除该图书吗?', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.deleteBook(id);
+                    }).catch(() => {
+                        this.$message.info('已取消删除');
+                    });
+                },
+                deleteBook(id) {
+                    axios.delete('http://localhost:8090/book/deleteBook', {
+                        params: { id }
+                    }).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('删除成功');
+                            this.loadBooks(); // Reload books after deletion
+                        } else {
+                            this.$message.error('删除失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error deleting book:', error);
+                        this.$message.error('删除失败');
+                    });
+                },
+                openAddBookDialog() {
+                    this.addBookForm = {
+                        title: '',
+                        author: '',
+                        publisher: '',
+                        type: '',
+                        status: ''
+                    }; // 清空表单
+                    this.addBookDialogVisible = true;
+                },
+                addBook() {
+                    axios.post('http://localhost:8090/book/addBook', this.addBookForm).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('添加成功');
+                            this.loadBooks(); // Reload books after addition
+                            this.addBookDialogVisible = false;
+                        } else {
+                            this.$message.error('添加失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error adding book:', error);
+                        this.$message.error('添加失败');
+                    });
+                },
+                openEditBookDialog(book) {
+                    this.editBookForm = { ...book }; // Clone the book object to editForm
+                    this.editBookDialogVisible = true;
+                },
+                updateBook() {
+                    axios.put('http://localhost:8090/book/updateBook', this.editBookForm).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('更新成功');
+                            this.loadBooks(); // Reload books after update
+                            this.editBookDialogVisible = false;
+                        } else {
+                            this.$message.error('更新失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error updating book:', error);
+                        this.$message.error('更新失败');
+                    });
+                },
+                // 确认退出
+                confirmLogout() {
+                    this.$confirm('确定要退出系统吗?', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.logout();
+                    }).catch(() => {
+                        this.$message.info('已取消退出');
+                    });
+                },
+                exportUsers() {
+                    const wb = XLSX.utils.book_new();
+                    const wsData = this.users.map(user => ({
+                        用户名: user.username,
+                        密码: user.password,
+                        邮箱: user.email,
+                        联系方式: user.tel
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(wsData);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Users');
+                    XLSX.writeFile(wb, '用户列表.xlsx');
+                },
+                exportBooks() {
+                    const wb = XLSX.utils.book_new();
+                    const wsData = this.books.map(book => ({
+                        书名: book.title,
+                        作者: book.author,
+                        出版社: book.publisher,
+                        类型: book.type,
+                        状态: book.status
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(wsData);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Books');
+                    XLSX.writeFile(wb, '图书列表.xlsx');
+                },
+                handleBorrowPageChange(val) {
+                    this.borrowCurrentPage = val;
+                },
+                returnBook(record) {
+                    axios.post('http://localhost:8090/borrowRecord/returnBook', {
+                        bookName: record.book_name
+                    }).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('归还成功');
+                            this.loadBorrowRecords();
+                            this.loadBooks();
+                        } else {
+                            this.$message.error('归还失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error returning book:', error);
+                        this.$message.error('归还失败');
+                    });
+                },
+                loadBorrowRecords() {
+                        axios.get('http://localhost:8090/borrowRecord/findAll')  // 修改为获取所有借阅记录的接口
+                            .then(res => {
+                                if (res.data && res.data.length > 0) {
+                                    this.borrowRecords = res.data.map((record, index) => ({
+                                        ...record,
+                                        displayId: index + 1 // 重新编号
+                                    }));
+                                } else {
+                                    this.$message.error('加载借阅记录失败');
+                                }
+                            }).catch(error => {
+                                console.error('Error loading borrow records:', error);
+                                this.$message.error('加载借阅记录失败');
+                            });
+                    },
+                //执行退出
+                logout() {
+                    sessionStorage.removeItem('admin');
+                    ELEMENT.Message.success('您已安全退出');
+                    setTimeout(() => {
+                        window.location.href = 'adminTry.html';
+                    }, 1000);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

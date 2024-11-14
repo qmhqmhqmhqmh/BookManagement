@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>管理员登录</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <style>
+        body {
+            background-color: #f0f2f5;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: url('img/Background 10.jpg') no-repeat center center;
+            background-size: cover;
+        }
+        .container {
+            text-align: center;
+        }
+        .slogan-container {
+            background-color: rgba(234, 244, 251, 0.85);
+            padding: 40px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: inline-block;
+            width: 1600px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .slogan-container .slogan {
+            color: #007bff;
+            font-size: 40px;
+            line-height: 1.5;
+        }
+        .login-container {
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            margin: 0 auto;
+        }
+        .login-container img.logo {
+            width: 10px;
+            margin-bottom: 20px;
+        }
+        .login-form {
+            width: 100%;
+        }
+        .login-form h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #007bff;
+        }
+        .login-form .el-form-item {
+            margin-bottom: 20px;
+        }
+        .login-form .el-button--primary {
+            width: 100%;
+        }
+        .register-link {
+            margin-top: 10px;
+            color: #007bff;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="container">
+        <div class="slogan-container">
+            <img src="img/3000.jpg" alt="Logo" class="logo" style="margin-bottom: 20px;">
+            <el-row>
+                <el-col :span="24">
+                    <el-typography>
+                        <el-typography-item class="slogan">
+                            优化后台管理 方便全民读书
+                        </el-typography-item>
+                    </el-typography>
+                </el-col>
+            </el-row>
+        </div>
+        <div class="login-container">
+            <el-form :model="loginForm" ref="loginForm" label-width="0px" class="login-form">
+                <h2>欢迎登录后端管理系统</h2>
+                <el-form-item prop="username" :rules="[{ required: true, message: '请输入管理账号', trigger: 'blur' }]">
+                    <el-input v-model="loginForm.username" placeholder="请输入用户名"></el-input>
+                </el-form-item>
+                <el-form-item prop="password" :rules="[{ required: true, message: '请输入密码', trigger: 'blur' }]">
+                    <el-input type="password" v-model="loginForm.password" placeholder="请输入密码"></el-input>
+                </el-form-item>
+                <el-form-item>
+                    <el-checkbox v-model="loginForm.remember">记住密码</el-checkbox>
+                </el-form-item>
+                <el-form-item>
+                    <el-button type="primary" @click="submitForm('loginForm')">登录</el-button>
+                </el-form-item>
+                <div class="register-link" @click="openRegisterDialog">还未注册账号？点击注册</div>
+            </el-form>
+        </div>
+
+        <!-- 注册弹窗 -->
+        <el-dialog title="图书馆后台管理员注册" :visible.sync="registerDialogVisible" width="30%">
+            <el-form :model="registerForm" ref="registerForm" label-width="80px" class="register-form">
+                <el-form-item label="用户名" prop="username" :rules="[{ required: true, message: '请输入用户名', trigger: 'blur' }]">
+                    <el-input v-model="registerForm.username"></el-input>
+                </el-form-item>
+                <el-form-item label="密码" prop="password" :rules="[{ required: true, message: '请输入密码', trigger: 'blur' }]">
+                    <el-input type="password" v-model="registerForm.password"></el-input>
+                </el-form-item>
+                <el-form-item label="确认密码" prop="confirmPassword" :rules="[{ required: true, message: '请确认密码', trigger: 'blur' }, { validator: validateConfirmPassword, trigger: 'blur' }]">
+                    <el-input type="password" v-model="registerForm.confirmPassword"></el-input>
+                </el-form-item>
+                <el-form-item label="邮箱" prop="email" :rules="[{ required: true, message: '请输入邮箱', trigger: 'blur' }, { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }]">
+                    <el-input v-model="registerForm.email"></el-input>
+                </el-form-item>
+                <el-form-item label="联系方式" prop="tel" :rules="[{ required: true, message: '请输入联系方式', trigger: 'blur' }]">
+                    <el-input v-model="registerForm.tel"></el-input>
+                </el-form-item>
+                <el-form-item>
+                    <el-button type="primary" @click="submitRegisterForm('registerForm')">注册</el-button>
+                    <el-button @click="resetRegisterForm('registerForm')">重置</el-button>
+                </el-form-item>
+            </el-form>
+        </el-dialog>
+    </div>
+
+    <script>
+        Vue.use(ELEMENT); 
+
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    loginForm: {
+                        username: '',
+                        password: '',
+                        remember: false
+                    },
+                    registerDialogVisible: false,
+                    registerForm: {
+                        username: '',
+                        password: '',
+                        confirmPassword: '',
+                        email: '',
+                        tel: ''
+                    }
+                }
+            },
+            methods: {
+                submitForm(formName) {
+                    this.$refs[formName].validate((valid) => {
+                        if (valid) {
+                            axios.post('http://localhost:8090/admin/login', this.loginForm)
+                                .then(res => {
+                                    if (res.data.isOk) {
+                                        this.$message.success('登录成功');
+                                        // 保存用户信息到session存储，模拟登录状态
+                                        sessionStorage.setItem('admin', JSON.stringify(res.data.user));
+                                        window.location.href = 'layout1.html';
+                                    } else {
+                                        this.$message.error('用户名或密码错误');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error logging in:', error);
+                                    this.$message.error('登录失败，请稍后重试');
+                                });
+                        } else {
+                            console.log('error submit!');
+                            return false;
+                        }
+                    });
+                },
+                openRegisterDialog() {
+                    this.registerDialogVisible = true;
+                },
+                validateConfirmPassword(rule, value, callback) {
+                    if (value !== this.registerForm.password) {
+                        callback(new Error('两次输入的密码不一致'));
+                    } else {
+                        callback();
+                    }
+                },
+                submitRegisterForm(formName) {
+                    this.$refs[formName].validate((valid) => {
+                        if (valid) {
+                            axios.post('http://localhost:8090/admin/register', this.registerForm)
+                                .then(res => {
+                                    if (res.data.isOk) {
+                                        this.$message.success('注册成功');
+                                        this.registerDialogVisible = false;
+                                        this.resetRegisterForm(formName);
+                                    } else {
+                                        this.$message.error('注册失败：' + res.data.message);
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error registering:', error);
+                                    this.$message.error('注册失败，请稍后重试');
+                                });
+                        } else {
+                            console.log('error submit!');
+                            return false;
+                        }
+                    });
+                },
+                resetRegisterForm(formName) {
+                    this.$refs[formName].resetFields();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

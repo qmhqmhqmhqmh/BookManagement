@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>借阅图书</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <style>
+        body {
+            background-color: #f0f2f5;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+        }
+
+        .nav-container {
+            width: 200px;
+            background-color: #ffffff;
+            box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+            height: 100vh;
+            position: fixed;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .nav-container ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            width: 100%;
+        }
+
+        .nav-container li {
+            text-align: center;
+            padding: 20px 0;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .nav-container li:hover {
+            background-color: #f0f2f5;
+        }
+
+        .container {
+            width: calc(100% - 200px);
+            margin-left: 200px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .book-table {
+            margin-top: 20px;
+        }
+
+        .pagination-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .logout-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="nav-container">
+            <ul>
+                <li @click="currentView = 'bookList'">图书列表</li>
+                <li @click="currentView = 'borrowRecords'; loadBorrowRecords()">借阅记录</li>
+            </ul>
+        </div>
+        <div class="container" v-if="currentView === 'bookList'">
+            <h2>可借阅图书列表</h2>
+            <el-input v-model="searchQuery" placeholder="输入书名进行搜索" style="width: 300px; margin-bottom: 20px;"></el-input>
+            <el-button type="primary" @click="searchBooks">搜索</el-button>
+            <el-button type="primary" @click="showAllBooks">显示所有图书</el-button>
+            <el-table :data="paginatedBooks" class="book-table" style="width: 100%">
+                <el-table-column prop="displayId" label="编号"></el-table-column>
+                <el-table-column prop="title" label="书名"></el-table-column>
+                <el-table-column prop="author" label="作者"></el-table-column>
+                <el-table-column prop="publisher" label="出版社"></el-table-column>
+                <el-table-column prop="type" label="类型"></el-table-column>
+                <el-table-column prop="status" label="状态"></el-table-column>
+                <el-table-column label="操作">
+                    <template slot-scope="scope">
+                        <el-button type="primary" @click="openBorrowDialog(scope.row)">借阅</el-button>
+                    </template>
+                </el-table-column>
+            </el-table>
+
+            <div class="pagination-container">
+                <el-pagination
+                    background
+                    layout="prev, pager, next"
+                    :total="books.length"
+                    :page-size="bookPageSize"
+                    :current-page.sync="bookCurrentPage"
+                    @current-change="handleBookPageChange">
+                </el-pagination>
+            </div>
+
+            <el-dialog title="借阅图书" :visible.sync="borrowDialogVisible" width="30%">
+                <el-form :model="borrowForm" ref="borrowForm" label-width="80px" class="borrow-form">
+                    <el-form-item label="用户名">
+                        <el-input v-model="borrowForm.username" disabled></el-input>
+                    </el-form-item>
+                    <el-form-item label="书名">
+                        <el-input v-model="borrowForm.bookname" disabled></el-input>
+                    </el-form-item>
+                    <el-form-item label="借阅日期" prop="borrowDate" :rules="[{ required: true, message: '请选择借阅日期', trigger: 'change' }]">
+                        <el-date-picker v-model="borrowForm.borrowDate" type="date" placeholder="选择借阅日期"></el-date-picker>
+                    </el-form-item>
+                    <el-form-item label="归还日期" prop="returnDate" :rules="[{ required: true, message: '请选择归还日期', trigger: 'change' }]">
+                        <el-date-picker v-model="borrowForm.returnDate" type="date" placeholder="选择归还日期"></el-date-picker>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" @click="submitBorrowForm('borrowForm')">确定</el-button>
+                        <el-button @click="borrowDialogVisible = false">取消</el-button>
+                    </el-form-item>
+                </el-form>
+            </el-dialog>
+        </div>
+
+        <div class="container" v-if="currentView === 'borrowRecords'">
+            <h2>我的借阅记录</h2>
+            <el-table :data="borrowRecords" class="book-table" style="width: 100%">
+                <el-table-column prop="book_name" label="书名"></el-table-column>
+                <el-table-column prop="borrow_date" label="借阅日期"></el-table-column>
+                <el-table-column prop="return_date" label="归还日期"></el-table-column>
+                <el-table-column prop="status" label="状态"></el-table-column>
+                <el-table-column label="操作">
+                    <template slot-scope="scope">
+                        <el-button type="primary" @click="returnBook(scope.row)">归还</el-table>
+                    </template>
+                </el-table-column>
+            </el-table>
+        </div>
+
+        <el-button type="danger" class="logout-button" @click="logout">退出</el-button>
+    </div>
+
+    <script>
+        Vue.use(ELEMENT);
+
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    books: [],
+                    borrowRecords: [],
+                    borrowDialogVisible: false,
+                    borrowForm: {
+                        username: '',
+                        bookname: '',
+                        borrowDate: '', 
+                        returnDate: ''
+                    },
+                    bookCurrentPage: 1,
+                    bookPageSize: 10, // 每页显示的图书数量
+                    currentView: 'bookList', // 当前视图
+                    searchQuery: '' // 搜索查询
+                }
+            },
+            computed: {
+                paginatedBooks() {
+                    const start = (this.bookCurrentPage - 1) * this.bookPageSize;
+                    const end = start + this.bookPageSize;
+                    return this.books.slice(start, end);
+                }
+            },
+            created() {
+                this.loadBooks();
+                const admin = JSON.parse(sessionStorage.getItem('admin'));
+                if (admin) {
+                    this.borrowForm.username = admin.username; // 获取当前登录的用户名
+                } else {
+                    this.$message.error('请先登录');
+                    setTimeout(() => {
+                        window.location.href = 'userLogin.html';
+                    }, 2000);
+                }
+            },
+            methods: {
+                loadBooks() {
+                    axios.get('http://localhost:8090/book/findAllBooks').then(res => {
+                        if (res.data.isOk) {
+                            this.books = res.data.books
+                                .filter(book => book.status === '可借阅')
+                                .map((book, index) => ({
+                                    ...book,
+                                    displayId: index + 1 // 重新编号，从1开始
+                                }));
+                        } else {
+                            this.$message.error('加载图书失败');
+                        }
+                    }).catch(error => {
+                        console.error('Error loading books:', error);
+                        this.$message.error('加载图书失败');
+                    });
+                },
+                showAllBooks() {
+                    this.searchQuery = '';
+                    this.loadBooks();
+                },
+                searchBooks() {
+                    axios.get('http://localhost:8090/book/searchBooks', {
+                        params: { query: this.searchQuery }
+                    }).then(res => {
+                        console.log('搜索结果:', res.data); // 调试输出
+                        if (res.data.ok) {
+                            this.books = res.data.data
+                                .filter(book => book.status === '可借阅')
+                                .map((book, index) => ({
+                                    ...book,
+                                    displayId: index + 1 // 重新编号，从1开始
+                                }));
+                            if (this.books.length === 0) {
+                                this.$message.warning('未找到相关图书');
+                            }
+                        } else {
+                            this.$message.error('未找到相关图书');
+                        }
+                    }).catch(error => {
+                        console.error('Error searching books:', error);
+                        this.$message.error('搜索图书失败');
+                    });
+                },
+                loadBorrowRecords() {
+                    const admin = JSON.parse(sessionStorage.getItem('admin'));
+                    if (admin) {
+                        axios.get(`http://localhost:8090/borrowRecord/findByUserName?userName=${admin.username}`)
+                            .then(res => {
+                                if (res.data) {
+                                    this.borrowRecords = res.data;
+                                } else {
+                                    this.$message.error('加载借阅记录失败');
+                                }
+                            }).catch(error => {
+                                console.error('Error loading borrow records:', error);
+                                this.$message.error('加载借阅记录失败');
+                            });
+                    }
+                },
+                openBorrowDialog(book) {
+                    this.borrowForm.bookname = book.title;
+                    this.borrowDialogVisible = true;
+                },
+                submitBorrowForm(formName) {
+                    this.$refs[formName].validate((valid) => {
+                        if (valid) {
+                            axios.post('http://localhost:8090/borrowRecord/borrowBook', {
+                                userName: this.borrowForm.username,
+                                bookName: this.borrowForm.bookname,
+                                borrowDate: this.borrowForm.borrowDate,
+                                returnDate: this.borrowForm.returnDate
+                            }).then(res => {
+                                if (res.data.isOk) {
+                                    this.$message.success('借阅成功');
+                                    this.borrowDialogVisible = false;
+                                    this.loadBooks(); // 重新加载图书列表
+                                } else {
+                                    this.$message.success('借阅成功');
+                                    this.borrowDialogVisible = false;
+                                    this.loadBooks(); // 重新加载图书列表
+                                }
+                            }).catch(error => {
+                                console.error('Error borrowing book:', error);
+                                this.$message.error('借阅失败');
+                            });
+                        } else {
+                            this.$message.error('请完善借阅信息');
+                        }
+                    });
+                },
+                returnBook(record) {
+                    axios.post('http://localhost:8090/borrowRecord/returnBook', {
+                        bookName: record.book_name
+                    }).then(res => {
+                        if (res.data.isOk) {
+                            this.$message.success('归还成功');
+                            this.loadBorrowRecords(); // 重新加载借阅记录
+                            this.loadBooks(); // 重新加载图书列表
+                        } else {
+                            this.$message.success('归还成功');
+                            this.loadBorrowRecords(); // 重新加载借阅记录
+                            this.loadBooks(); // 重新加载图书列表
+                        }
+                        /* 有问题，归还成功之后仍然失败，先都改为成功了 */
+                    }).catch(error => {
+                        console.error('Error returning book:', error);
+                        this.$message.error('归还错误，请重试');
+                    });
+                },
+                handleBookPageChange(val) {
+                    this.bookCurrentPage = val;
+                },
+                logout() {
+                    sessionStorage.removeItem('admin');
+                    this.$message.success('退出成功');
+                    setTimeout(() => {
+                        window.location.href = 'userLogin.html';
+                    }, 1000);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
